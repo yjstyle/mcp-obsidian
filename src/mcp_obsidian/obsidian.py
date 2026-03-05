@@ -2,6 +2,8 @@ import requests
 import urllib.parse
 import os
 from typing import Any
+from .access_guard import VaultAccessGuard
+from .runtime_config import load_runtime_config
 
 class Obsidian():
     def __init__(
@@ -11,6 +13,8 @@ class Obsidian():
             host: str = str(os.getenv('OBSIDIAN_HOST', '127.0.0.1')),
             port: int = int(os.getenv('OBSIDIAN_PORT', '27124')),
             verify_ssl: bool = False,
+            mode: str | None = None,
+            agent_root_dir: str | None = None,
         ):
         self.api_key = api_key
         
@@ -23,6 +27,9 @@ class Obsidian():
         self.port = port
         self.verify_ssl = verify_ssl
         self.timeout = (3, 6)
+        self.access_guard = VaultAccessGuard(
+            load_runtime_config(mode=mode, agent_root_dir=agent_root_dir)
+        )
 
     def get_base_url(self) -> str:
         return f'{self.protocol}://{self.host}:{self.port}'
@@ -44,8 +51,19 @@ class Obsidian():
         except requests.exceptions.RequestException as e:
             raise Exception(f"Request failed: {str(e)}")
 
+    def _vault_url(self, path: str = "", is_directory: bool = False) -> str:
+        scoped_path = self.access_guard.resolve_path(path)
+        if scoped_path == "":
+            return f"{self.get_base_url()}/vault/"
+
+        suffix = "/" if is_directory else ""
+        return f"{self.get_base_url()}/vault/{scoped_path}{suffix}"
+
     def list_files_in_vault(self) -> Any:
-        url = f"{self.get_base_url()}/vault/"
+        if self.access_guard.is_agent_mode:
+            return self.list_files_in_dir("")
+
+        url = self._vault_url()
         
         def call_fn():
             response = requests.get(url, headers=self._get_headers(), verify=self.verify_ssl, timeout=self.timeout)
@@ -57,7 +75,7 @@ class Obsidian():
 
         
     def list_files_in_dir(self, dirpath: str) -> Any:
-        url = f"{self.get_base_url()}/vault/{dirpath}/"
+        url = self._vault_url(dirpath, is_directory=True)
         
         def call_fn():
             response = requests.get(url, headers=self._get_headers(), verify=self.verify_ssl, timeout=self.timeout)
@@ -68,7 +86,7 @@ class Obsidian():
         return self._safe_call(call_fn)
 
     def get_file_contents(self, filepath: str) -> Any:
-        url = f"{self.get_base_url()}/vault/{filepath}"
+        url = self._vault_url(filepath)
     
         def call_fn():
             response = requests.get(url, headers=self._get_headers(), verify=self.verify_ssl, timeout=self.timeout)
@@ -109,12 +127,12 @@ class Obsidian():
         def call_fn():
             response = requests.post(url, headers=self._get_headers(), params=params, verify=self.verify_ssl, timeout=self.timeout)
             response.raise_for_status()
-            return response.json()
+            return self.access_guard.filter_search_results(response.json())
 
         return self._safe_call(call_fn)
     
     def append_content(self, filepath: str, content: str) -> Any:
-        url = f"{self.get_base_url()}/vault/{filepath}"
+        url = self._vault_url(filepath)
         
         def call_fn():
             response = requests.post(
@@ -130,7 +148,7 @@ class Obsidian():
         return self._safe_call(call_fn)
     
     def patch_content(self, filepath: str, operation: str, target_type: str, target: str, content: str) -> Any:
-        url = f"{self.get_base_url()}/vault/{filepath}"
+        url = self._vault_url(filepath)
         
         headers = self._get_headers() | {
             'Content-Type': 'text/markdown',
@@ -147,7 +165,7 @@ class Obsidian():
         return self._safe_call(call_fn)
 
     def put_content(self, filepath: str, content: str) -> Any:
-        url = f"{self.get_base_url()}/vault/{filepath}"
+        url = self._vault_url(filepath)
         
         def call_fn():
             response = requests.put(
@@ -171,7 +189,7 @@ class Obsidian():
         Returns:
             None on success
         """
-        url = f"{self.get_base_url()}/vault/{filepath}"
+        url = self._vault_url(filepath)
         
         def call_fn():
             response = requests.delete(url, headers=self._get_headers(), verify=self.verify_ssl, timeout=self.timeout)
@@ -182,15 +200,16 @@ class Obsidian():
     
     def search_json(self, query: dict) -> Any:
         url = f"{self.get_base_url()}/search/"
+        scoped_query = self.access_guard.scope_jsonlogic_query(query)
         
         headers = self._get_headers() | {
             'Content-Type': 'application/vnd.olrapi.jsonlogic+json'
         }
         
         def call_fn():
-            response = requests.post(url, headers=headers, json=query, verify=self.verify_ssl, timeout=self.timeout)
+            response = requests.post(url, headers=headers, json=scoped_query, verify=self.verify_ssl, timeout=self.timeout)
             response.raise_for_status()
-            return response.json()
+            return self.access_guard.filter_search_results(response.json())
 
         return self._safe_call(call_fn)
     
@@ -206,6 +225,7 @@ class Obsidian():
         Returns:
             Content of the periodic note
         """
+        self.access_guard.ensure_feature_supported("periodic_note")
         url = f"{self.get_base_url()}/periodic/{period}/"
         
         def call_fn():
@@ -230,6 +250,7 @@ class Obsidian():
         Returns:
             List of recent periodic notes
         """
+        self.access_guard.ensure_feature_supported("recent_periodic_notes")
         url = f"{self.get_base_url()}/periodic/{period}/recent"
         params = {
             "limit": limit,
@@ -261,9 +282,16 @@ class Obsidian():
             List of recently modified files with metadata
         """
         # Build the DQL query
+        where_clause = f"file.mtime >= date(today) - dur({days} days)"
+        if self.access_guard.is_agent_mode:
+            where_clause = (
+                f"startswith(file.path, \"{self.access_guard.agent_root_dir}/\") "
+                f"AND {where_clause}"
+            )
+
         query_lines = [
             "TABLE file.mtime",
-            f"WHERE file.mtime >= date(today) - dur({days} days)",
+            f"WHERE {where_clause}",
             "SORT file.mtime DESC",
             f"LIMIT {limit}"
         ]

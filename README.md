@@ -45,7 +45,9 @@ There are two ways to configure the environment with the Obsidian REST API Key.
     "env": {
       "OBSIDIAN_API_KEY": "<your_api_key_here>",
       "OBSIDIAN_HOST": "<your_obsidian_host>",
-      "OBSIDIAN_PORT": "<your_obsidian_port>"
+      "OBSIDIAN_PORT": "<your_obsidian_port>",
+      "OBSIDIAN_MODE": "document",
+      "OBSIDIAN_AGENT_ROOT_DIR": "_agent"
     }
   }
 }
@@ -58,12 +60,16 @@ Sometimes Claude has issues detecting the location of uv / uvx. You can use `whi
 OBSIDIAN_API_KEY=your_api_key_here
 OBSIDIAN_HOST=your_obsidian_host
 OBSIDIAN_PORT=your_obsidian_port
+OBSIDIAN_MODE=document
+OBSIDIAN_AGENT_ROOT_DIR=_agent
 ```
 
 Note:
 - You can find the API key in the Obsidian plugin config
 - Default port is 27124 if not specified
 - Default host is 127.0.0.1 if not specified
+- `OBSIDIAN_MODE` supports `document` (default) and `agent`
+- In `agent` mode, vault path access is sandboxed under `OBSIDIAN_AGENT_ROOT_DIR` (default `_agent`)
 
 ## Quickstart
 
@@ -98,7 +104,9 @@ On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
       "env": {
         "OBSIDIAN_API_KEY": "<your_api_key_here>",
         "OBSIDIAN_HOST": "<your_obsidian_host>",
-        "OBSIDIAN_PORT": "<your_obsidian_port>"
+        "OBSIDIAN_PORT": "<your_obsidian_port>",
+        "OBSIDIAN_MODE": "document",
+        "OBSIDIAN_AGENT_ROOT_DIR": "_agent"
       }
     }
   }
@@ -120,7 +128,9 @@ On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
       "env": {
         "OBSIDIAN_API_KEY": "<YOUR_OBSIDIAN_API_KEY>",
         "OBSIDIAN_HOST": "<your_obsidian_host>",
-        "OBSIDIAN_PORT": "<your_obsidian_port>"
+        "OBSIDIAN_PORT": "<your_obsidian_port>",
+        "OBSIDIAN_MODE": "document",
+        "OBSIDIAN_AGENT_ROOT_DIR": "_agent"
       }
     }
   }
